@@ -1,0 +1,17 @@
+ECU Network Configuration BMS Project v2.1
+
+network:
+  protocol: CAN-FD
+  baudrate: 500000
+  node_id: 0x1A
+  timeout_ms: 150
+
+logging:
+  level: WARNING
+  output: /var/log/bms_agent.log
+  rotate_every_mb: 50
+
+safety:
+  watchdog_enabled: true
+  max_retry: 3
+  fail_safe_mode: SHUTDOWN
