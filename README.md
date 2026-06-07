@@ -2,80 +2,145 @@
 
 ## Vue d’ensemble du projet
 
-Ce projet implémente un agent intelligent basé sur le (Model Context Protocol (MCP) Python SDK)combiné au modèle de langage local (Qwen2.5). 
+Ce projet implémente un agent intelligent basé sur le **Model Context Protocol (MCP) Python SDK** combiné à un modèle de langage local exécuté via **Ollama**.
 
-Le système démontre comment un agent IA peut décider de manière autonome d’utiliser un outil système externe, exécuter cet outil de manière sécurisée via un canal de transport standard, et exploiter le résultat pour générer une réponse structurée et déterministe.
+Le système démontre comment un agent IA peut découvrir un outil exposé par un serveur MCP, utiliser cet outil pour accéder à une ressource locale, puis exploiter le résultat obtenu afin de générer une réponse structurée.
 
-Cette architecture découplée simule les exigences de robustesse et de sécurité appliquées aux systèmes industriels et aux architectures embarquées (calculateurs d'automobiles, systèmes de gestion de batterie - BMS).
+L'architecture reproduit le fonctionnement attendu dans l'exercice technique en séparant clairement les responsabilités :
 
+* Le serveur MCP expose un outil unique.
+* Le client orchestre les échanges entre le LLM et le serveur MCP.
+* Le LLM analyse le contenu récupéré via l'outil et produit le résumé final.
+* Aucune plateforme cloud n'est utilisée ; l'ensemble du système fonctionne localement.
 
+---
 
 ## Objectif
 
-L’objectif de cet agent est de valider les critères techniques suivants :
-- Utilisation exclusive du SDK officiel MCP (Model Context Protocol) pour l'orchestration.
-- Interation avec un LLM local d'une taille strictement inférieure à 4 milliards de paramètres (≤ 4B params).
-- Exécution d'un outil système réel au lieu de générer des hallucinations textuelles.
-- Lecture et analyse d'un fichier de configuration industriel structuré (test_data/config.yaml).
-- Production d'une sortie strictement restreinte à 3 points clés, conforme aux exigences de validation.
+L'objectif de ce projet est de démontrer :
+
+* L'utilisation du protocole MCP (Model Context Protocol).
+* L'intégration d'un modèle local via Ollama.
+* La mise en œuvre manuelle du cycle Tool Calling sans LangChain, LlamaIndex ou AutoGen.
+* La lecture d'un fichier de configuration industriel.
+* La génération d'un résumé structuré en trois points.
+* Le respect de l'architecture imposée dans l'énoncé.
 
 ---
 
-## Architecture du système
+## Architecture Générale
 
-                Utilisateur → client.py → LLM (Ollama - Qwen2.5)
-                        ↓
-                Détection du besoin d’outil (Tool Calling)
-                        ↓
-                Serveur MCP (server.py)
-                        ↓
-                Système de fichiers (config.yaml)
-                        ↓
-                Retour du contenu du fichier
-                        ↓
-                Génération du résumé final par le LLM
-                
-
-## Note Technique : Justification du Choix du Modèle
-
-Initialement prévu avec le modèle `qwen2:1.5b` mentionné à titre d'exemple dans le sujet, l'implémentation utilise explicitement le modèle **`qwen2.5:1.5b`**. 
-
-**Justification technique :** La version antérieure `qwen2:1.5b` sous Ollama ne prend pas nativement en charge le paramètre `tools` via l'API standard d'Ollama, provoquant un rejet systématique de la requête (Erreur HTTP 400 Bad Request). Le modèle mis à jour `qwen2.5:1.5b`, bien que conservant une empreinte mémoire ultra-légère ($1,5$ milliard de paramètres) parfaitement adaptée aux contraintes locales de l'exercice (≤ 4B params), a été spécifiquement entraîné pour le *Tool Calling*. Ce choix garantit un déclenchement 100% autonome et fiable de l'outil MCP.
-
----
-
-## Configuration du Serveur MCP (server.py)
-
-Le serveur MCP utilise le SDK Python officiel et expose un outil unique via un canal de transport standardisé `stdio` :
-
-### Outil : `read_file`
-- **Description** : Permet la lecture sécurisée d'un fichier local.
-- **Paramètres d'entrée** : `{ "path": "<relative_path>" }`
-- **Sortie** : Contenu brut du fichier sous forme de chaîne de caractères (`string`).
-- **Fiabilité** : Intègre une gestion des exceptions pour retourner un message explicite si le fichier demandé est introuvable.
-
----
-
-## Fonctionnement du Client (client.py)
-
-Le script client réalise l'orchestration manuelle (*wired by hand*, sans framework de haut niveau comme LangChain ou AutoGen) selon le cycle suivant :
-1. Lancement du script serveur comme sous-processus de manière asynchrone.
-2. Établissement de la session MCP via le canal de transport bidirectionnel standard (`stdin/stdout`).
-3. Découverte dynamique des outils exposés par le serveur et conversion de leur schéma au format attendu par Ollama.
-4. Envoi de la requête utilisateur initiale au modèle local.
-5. Analyse de la réponse du modèle et extraction automatique de la demande d'appel d'outil (`tool_calls`).
-6. Exécution de l'action de lecture de fichier par le serveur MCP.
-7. Injection du contenu lu dans l'historique des messages pour maintenir le contexte.
-8. Second passage au LLM avec des directives système strictes pour verrouiller le formatage de la réponse.
+```text
+Utilisateur
+     │
+     ▼
+client.py
+     │
+     ▼
+LLM Local (Ollama)
+     │
+     ▼
+Décision d'utiliser un outil
+     │
+     ▼
+Serveur MCP (server.py)
+     │
+     ▼
+read_file(path)
+     │
+     ▼
+test_data/config.yaml
+     │
+     ▼
+Contenu du fichier
+     │
+     ▼
+LLM
+     │
+     ▼
+Résumé final
+```
 
 ---
 
-## Données de Test (test_data/config.yaml)
+## Structure du Projet
 
-Le fichier de configuration réseau de l'ECU (Battery Management System) utilisé pour la validation contient les paramètres suivants :
+```text
+stellantis-mcp-agent/
+├── screenshots/
+├── test_data/
+│   └── config.yaml
+├── .gitignore
+├── client.py
+├── server.py
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Serveur MCP
+
+Le fichier `server.py` implémente un serveur MCP utilisant le SDK officiel Python.
+
+Le serveur expose un unique outil :
+
+### read_file
+
+Entrée :
+
+```json
+{
+  "path": "test_data/config.yaml"
+}
+```
+
+Sortie :
+
+```text
+Contenu brut du fichier demandé
+```
+
+Fonctionnalités :
+
+* Lecture d'un fichier local.
+* Retour du contenu sous forme de chaîne de caractères.
+* Gestion des erreurs si le fichier n'existe pas.
+* Communication via le transport stdio conformément à l'énoncé.
+
+---
+
+## Client MCP
+
+Le fichier `client.py` joue le rôle d'orchestrateur principal.
+
+Responsabilités :
+
+1. Démarrer automatiquement le serveur MCP.
+2. Établir une connexion MCP via stdio.
+3. Découvrir les outils disponibles.
+4. Envoyer une requête au modèle local.
+5. Détecter la demande d'utilisation de l'outil.
+6. Exécuter l'outil `read_file`.
+7. Récupérer le contenu du fichier.
+8. Fournir ce contenu au modèle.
+9. Générer le résumé final.
+10. Afficher le résultat dans le terminal.
+
+---
+
+## Fichier de Test
+
+Le système analyse le fichier suivant :
+
+```text
+test_data/config.yaml
+```
+
+Contenu :
 
 ```yaml
-# ECU Network Configuration - BMS Project v2.1
+ECU Network Configuration BMS Project v2.1
 
 network:
   protocol: CAN-FD
@@ -92,35 +157,106 @@ safety:
   watchdog_enabled: true
   max_retry: 3
   fail_safe_mode: SHUTDOWN
-  
+```
 
-Instructions d'Installation et Exécution (Moins de 5 minutes)
-Suivez ces étapes séquentielles pour reproduire l'exécution complète de l'agent en local.
+---
 
-1. Préparation du modèle local
-Assurez-vous que l'application Ollama est active sur votre machine, puis téléchargez le modèle requis depuis votre terminal :
+## Dépendances
 
-Bash
-ollama pull qwen2.5:1.5b
-2. Installation des dépendances Python
-Installez l'ensemble des bibliothèques logicielles nécessaires stockées dans le fichier de gestion des dépendances :
+Le projet utilise uniquement les dépendances autorisées par l'énoncé :
 
-Bash
+```text
+Python 3.10+
+Ollama
+mcp
+ollama
+```
+
+Installation :
+
+```bash
 pip install -r requirements.txt
-3. Exécution de l'agent
-Lancez l'orchestrateur principal via la commande unique suivante :
+```
 
-Bash
+---
+
+## Installation du Modèle
+
+Télécharger le modèle local :
+
+```bash
+ollama pull qwen2:1.5b
+```
+
+Vérifier qu'Ollama est actif :
+
+```bash
+ollama list
+```
+
+---
+
+## Exécution
+
+Lancer simplement :
+
+```bash
 python client.py
-Format de Sortie Obtenu
-L'exécution réussie du pipeline produit l'affichage déterministe suivant au sein du terminal :
+```
 
-Plaintext
-===== AGENT FINAL OUTPUT =====
-- NETWORK: CAN-FD, baudrate set to 500000, node with ID 0x1A, timeout of 150ms
-- LOGGING: Log messages at WARNING level and rotated when reaching 50MB in size
-- SAFETY: Watchdog feature enabled, maximum retries are 3 times, failure is handled by SHUTDOWN mode
+Le programme :
 
+1. Démarre le serveur MCP.
+2. Se connecte au serveur.
+3. Lit le fichier via l'outil MCP.
+4. Analyse son contenu.
+5. Affiche le résumé final.
 
-Conclusion
-Ce projet démontre la viabilité et l'efficacité du protocole ouvert MCP pour découpler le raisonnement de l'IA de l'exécution des privilèges système. En limitant l'accès aux ressources via des outils contrôlés et en encadrant strictement le cycle de communication, l'architecture garantit une intégration logicielle prévisible, sécurisée et performante, répondant parfaitement aux standards requis par l'industrie.
+---
+
+## Exemple de Résultat
+
+```text
+===== FINAL ANSWER =====
+
+- NETWORK: CAN-FD network at 500 kbps, node ID 0x1A, timeout 150 ms
+- LOGGING: WARNING level with log rotation every 50 MB
+- SAFETY: Watchdog enabled, maximum 3 retries, fail-safe mode SHUTDOWN
+```
+
+---
+
+## Gestion des Erreurs
+
+Le projet intègre plusieurs mécanismes de robustesse :
+
+* Vérification de l'existence du fichier demandé.
+* Gestion des exceptions lors de la lecture.
+* Validation des réponses du modèle.
+* Contrôle des appels d'outils MCP.
+* Fermeture propre du serveur à la fin de l'exécution.
+
+---
+
+## Respect de l'Énoncé
+
+Cette implémentation respecte les exigences imposées :
+
+* Utilisation d'un modèle local inférieur à 4 milliards de paramètres.
+* Utilisation du protocole MCP.
+* Utilisation du transport stdio.
+* Outil unique `read_file`.
+* Aucune utilisation de LangChain.
+* Aucune utilisation de LlamaIndex.
+* Aucune utilisation d'AutoGen.
+* Orchestration réalisée manuellement.
+* Lecture du fichier via MCP et non directement depuis le client.
+* Génération d'un résumé final en trois points.
+
+---
+
+## Conclusion
+
+Ce projet met en œuvre un agent IA local capable d'interagir avec des ressources système à travers le protocole MCP. L'architecture sépare clairement les responsabilités entre le raisonnement du modèle, l'accès aux ressources locales et l'orchestration applicative.
+
+Cette approche reproduit les principes utilisés dans les systèmes industriels modernes où les modèles d'intelligence artificielle doivent accéder à des données réelles via des interfaces contrôlées, sécurisées et traçables.
