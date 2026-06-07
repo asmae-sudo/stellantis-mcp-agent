@@ -1,89 +1,81 @@
-# MCP Tool-Enabled LLM Agent (Assistant de lecture de fichiers)
+# Stellantis MCP Intelligent Agent - Embedded Configuration Analyzer
 
 ## Vue d’ensemble du projet
 
-Ce projet implémente un agent intelligent basé sur le **Model Context Protocol (MCP) SDK** combiné à un **modèle de langage local (Ollama - Qwen2)**.
+Ce projet implémente un agent intelligent basé sur le (Model Context Protocol (MCP) Python SDK)combiné au modèle de langage local (Qwen2.5). 
 
-Le système démontre comment un agent IA peut :
-- décider dynamiquement d’utiliser un outil externe,
-- exécuter cet outil de manière sécurisée,
-- exploiter le résultat pour générer une réponse structurée.
+Le système démontre comment un agent IA peut décider de manière autonome d’utiliser un outil système externe, exécuter cet outil de manière sécurisée via un canal de transport standard, et exploiter le résultat pour générer une réponse structurée et déterministe.
 
-L’agent permet de :
-- démarrer un serveur MCP,
-- communiquer avec un LLM local,
-- détecter le besoin d’un outil,
-- exécuter le tool `read_file` via MCP SDK,
-- lire des fichiers locaux de configuration,
-- générer un résumé structuré des données.
+Cette architecture découplée simule les exigences de robustesse et de sécurité appliquées aux systèmes industriels et aux architectures embarquées (calculateurs d'automobiles, systèmes de gestion de batterie - BMS).
 
-Ce projet simule une architecture d’agent IA utilisée dans les systèmes industriels, embarqués et les pipelines d’automatisation.
 
----
 
 ## Objectif
 
-L’objectif principal est de construire un agent IA fiable et déterministe capable de :
-
-- utiliser le SDK officiel MCP (Model Context Protocol),
-- interagir avec un LLM local (Qwen2 via Ollama),
-- exécuter des outils externes au lieu d’inventer des réponses,
-- lire des fichiers de configuration structurés (`test_data/config.yaml`),
-- produire une sortie strictement formatée (3 bullet points),
-- implémenter un pipeline complet de tool-calling.
+L’objectif de cet agent est de valider les critères techniques suivants :
+- Utilisation exclusive du SDK officiel MCP (Model Context Protocol) pour l'orchestration.
+- Interation avec un LLM local d'une taille strictement inférieure à 4 milliards de paramètres (≤ 4B params).
+- Exécution d'un outil système réel au lieu de générer des hallucinations textuelles.
+- Lecture et analyse d'un fichier de configuration industriel structuré (test_data/config.yaml).
+- Production d'une sortie strictement restreinte à 3 points clés, conforme aux exigences de validation.
 
 ---
 
 ## Architecture du système
 
-Utilisateur → client.py → LLM (Ollama - Qwen2)
-                     ↓
-             Détection du besoin d’outil
-                     ↓
-             Serveur MCP (server.py)
-                     ↓
-             Système de fichiers (config.yaml)
-                     ↓
-             Retour du contenu du fichier
-                     ↓
-        Génération du résumé final par le LLM
+                Utilisateur → client.py → LLM (Ollama - Qwen2.5)
+                        ↓
+                Détection du besoin d’outil (Tool Calling)
+                        ↓
+                Serveur MCP (server.py)
+                        ↓
+                Système de fichiers (config.yaml)
+                        ↓
+                Retour du contenu du fichier
+                        ↓
+                Génération du résumé final par le LLM
+                
+
+## Note Technique : Justification du Choix du Modèle
+
+Initialement prévu avec le modèle `qwen2:1.5b` mentionné à titre d'exemple dans le sujet, l'implémentation utilise explicitement le modèle **`qwen2.5:1.5b`**. 
+
+**Justification technique :** La version antérieure `qwen2:1.5b` sous Ollama ne prend pas nativement en charge le paramètre `tools` via l'API standard d'Ollama, provoquant un rejet systématique de la requête (Erreur HTTP 400 Bad Request). Le modèle mis à jour `qwen2.5:1.5b`, bien que conservant une empreinte mémoire ultra-légère ($1,5$ milliard de paramètres) parfaitement adaptée aux contraintes locales de l'exercice (≤ 4B params), a été spécifiquement entraîné pour le *Tool Calling*. Ce choix garantit un déclenchement 100% autonome et fiable de l'outil MCP.
 
 ---
 
-## Serveur MCP (server.py)
+## Configuration du Serveur MCP (server.py)
 
-Le serveur MCP expose un seul outil :
+Le serveur MCP utilise le SDK Python officiel et expose un outil unique via un canal de transport standardisé `stdio` :
 
-### Tool : read_file(path: str)
-
-Fonctionnalités :
-- lecture d’un fichier local,
-- retour du contenu brut sous forme de texte,
-- exposition sécurisée via MCP SDK,
-- exécution uniquement sur demande du client.
+### Outil : `read_file`
+- **Description** : Permet la lecture sécurisée d'un fichier local.
+- **Paramètres d'entrée** : `{ "path": "<relative_path>" }`
+- **Sortie** : Contenu brut du fichier sous forme de chaîne de caractères (`string`).
+- **Fiabilité** : Intègre une gestion des exceptions pour retourner un message explicite si le fichier demandé est introuvable.
 
 ---
 
-## Fonctionnement du client (client.py)
+## Fonctionnement du Client (client.py)
 
-Le client suit un pipeline strict :
-
-1. Démarrer le serveur MCP en sous-processus  
-2. Se connecter au serveur via stdio_client  
-3. Récupérer la liste des outils disponibles  
-4. Envoyer une requête au LLM  
-5. Analyser la réponse pour détecter l’outil et le chemin du fichier  
-6. Exécuter l’outil `read_file` via MCP  
-7. Récupérer le contenu du fichier  
-8. Envoyer le contenu au LLM  
-9. Forcer une sortie structurée (3 bullet points)  
-10. Valider et formater le résultat final  
+Le script client réalise l'orchestration manuelle (*wired by hand*, sans framework de haut niveau comme LangChain ou AutoGen) selon le cycle suivant :
+1. Lancement du script serveur comme sous-processus de manière asynchrone.
+2. Établissement de la session MCP via le canal de transport bidirectionnel standard (`stdin/stdout`).
+3. Découverte dynamique des outils exposés par le serveur et conversion de leur schéma au format attendu par Ollama.
+4. Envoi de la requête utilisateur initiale au modèle local.
+5. Analyse de la réponse du modèle et extraction automatique de la demande d'appel d'outil (`tool_calls`).
+6. Exécution de l'action de lecture de fichier par le serveur MCP.
+7. Injection du contenu lu dans l'historique des messages pour maintenir le contexte.
+8. Second passage au LLM avec des directives système strictes pour verrouiller le formatage de la réponse.
 
 ---
 
-## Fichier d’entrée (test_data/config.yaml)
+## Données de Test (test_data/config.yaml)
 
-ECU Network Configuration BMS Project v2.1
+Le fichier de configuration réseau de l'ECU (Battery Management System) utilisé pour la validation contient les paramètres suivants :
+
+```yaml
+# ECU Network Configuration - BMS Project v2.1
 
 network:
   protocol: CAN-FD
@@ -100,67 +92,35 @@ safety:
   watchdog_enabled: true
   max_retry: 3
   fail_safe_mode: SHUTDOWN
+  
 
----
+Instructions d'Installation et Exécution (Moins de 5 minutes)
+Suivez ces étapes séquentielles pour reproduire l'exécution complète de l'agent en local.
 
-## Format de sortie attendu
+1. Préparation du modèle local
+Assurez-vous que l'application Ollama est active sur votre machine, puis téléchargez le modèle requis depuis votre terminal :
 
-- NETWORK : CAN-FD, 500000 baud, node 0x1A, timeout 150ms  
-- LOGGING : WARNING level, sortie /var/log/bms_agent.log, rotation 50MB  
-- SAFETY : watchdog activé, max retry 3, mode fail-safe SHUTDOWN  
+Bash
+ollama pull qwen2.5:1.5b
+2. Installation des dépendances Python
+Installez l'ensemble des bibliothèques logicielles nécessaires stockées dans le fichier de gestion des dépendances :
 
----
+Bash
+pip install -r requirements.txt
+3. Exécution de l'agent
+Lancez l'orchestrateur principal via la commande unique suivante :
 
-## Fonctionnalités principales
-
-- Intégration du SDK officiel MCP  
-- Raisonnement IA basé sur des outils  
-- Prompt engineering strict  
-- Sortie déterministe et structurée  
-- Séparation entre LLM et exécution système  
-- Accès fichier sécurisé via tool uniquement  
-
----
-
-## Sécurité et fiabilité
-
-- Le LLM n’a pas accès direct au système de fichiers  
-- Toutes les lectures passent par un outil MCP  
-- L’exécution des outils est contrôlée par le client  
-- Les sorties sont validées et nettoyées  
-- Gestion de robustesse en cas d’erreur  
-
----
-
-## Améliorations possibles
-
-- Ajout de nouveaux outils (write_file, list_dir, search_files)  
-- Support du streaming LLM  
-- Amélioration du parsing des outils (JSON structuré)  
-- Ajout d’un système de logs avancé  
-- Conteneurisation avec Docker  
-- Passage à une architecture asynchrone complète  
-
----
-
-## Lancement du projet
-
+Bash
 python client.py
+Format de Sortie Obtenu
+L'exécution réussie du pipeline produit l'affichage déterministe suivant au sein du terminal :
 
-Conditions requises :
-- SDK MCP installé
-- Ollama en cours d’exécution
-- fichier config.yaml présent dans test_data/
+Plaintext
+===== AGENT FINAL OUTPUT =====
+- NETWORK: CAN-FD, baudrate set to 500000, node with ID 0x1A, timeout of 150ms
+- LOGGING: Log messages at WARNING level and rotated when reaching 50MB in size
+- SAFETY: Watchdog feature enabled, maximum retries are 3 times, failure is handled by SHUTDOWN mode
 
----
 
-## Conclusion
-
-Ce projet démontre une architecture complète d’agent IA basé sur MCP combinant :
-
-- raisonnement via LLM,
-- utilisation d’outils externes,
-- interaction avec le système de fichiers,
-- contrôle strict de la structure des réponses.
-
-Il constitue une base solide pour des systèmes IA industriels utilisés dans l’automatisation, les systèmes embarqués et les agents intelligents.
+Conclusion
+Ce projet démontre la viabilité et l'efficacité du protocole ouvert MCP pour découpler le raisonnement de l'IA de l'exécution des privilèges système. En limitant l'accès aux ressources via des outils contrôlés et en encadrant strictement le cycle de communication, l'architecture garantit une intégration logicielle prévisible, sécurisée et performante, répondant parfaitement aux standards requis par l'industrie.
