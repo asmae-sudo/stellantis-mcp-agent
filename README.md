@@ -129,18 +129,12 @@ Responsabilités :
 
 ---
 
-## Fichier de Test
+## Données de Test (test_data/config.yaml)
 
-Le système analyse le fichier suivant :
-
-```text
-test_data/config.yaml
-```
-
-Contenu :
+Le fichier de configuration réseau de l'ECU (Battery Management System) utilisé pour la validation contient les paramètres suivants :
 
 ```yaml
-ECU Network Configuration BMS Project v2.1
+# ECU Network Configuration - BMS Project v2.1
 
 network:
   protocol: CAN-FD
@@ -159,72 +153,39 @@ safety:
   fail_safe_mode: SHUTDOWN
 ```
 
----
+## Instructions d'Installation et Exécution (Moins de 5 minutes)
 
-## Dépendances
+Suivez ces étapes séquentielles pour reproduire l'exécution complète de l'agent en local.
 
-Le projet utilise uniquement les dépendances autorisées par l'énoncé :
+### 1. Préparation du modèle local
 
-```text
-Python 3.10+
-Ollama
-mcp
-ollama
-```
-
-Installation :
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Installation du Modèle
-
-Télécharger le modèle local :
+Assurez-vous qu'Ollama est actif sur votre machine, puis téléchargez le modèle requis :
 
 ```bash
 ollama pull qwen2:1.5b
 ```
 
-Vérifier qu'Ollama est actif :
+### 2. Installation des dépendances Python
 
 ```bash
-ollama list
+pip install -r requirements.txt
 ```
 
----
-
-## Exécution
-
-Lancer simplement :
+### 3. Exécution de l'agent
 
 ```bash
 python client.py
 ```
 
-Le programme :
-
-1. Démarre le serveur MCP.
-2. Se connecte au serveur.
-3. Lit le fichier via l'outil MCP.
-4. Analyse son contenu.
-5. Affiche le résumé final.
-
----
-
-## Exemple de Résultat
+## Format de Sortie Obtenu
 
 ```text
-===== FINAL ANSWER =====
+===== AGENT FINAL OUTPUT =====
 
-- NETWORK: CAN-FD network at 500 kbps, node ID 0x1A, timeout 150 ms
-- LOGGING: WARNING level with log rotation every 50 MB
-- SAFETY: Watchdog enabled, maximum 3 retries, fail-safe mode SHUTDOWN
+- NETWORK: CAN-FD, baudrate set to 500000, node ID 0x1A, timeout of 150ms
+- LOGGING: WARNING level, rotation every 50MB
+- SAFETY: Watchdog enabled, maximum retries 3, fail-safe SHUTDOWN
 ```
-
----
 
 ## Gestion des Erreurs
 
